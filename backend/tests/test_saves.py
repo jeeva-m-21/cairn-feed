@@ -5,7 +5,12 @@ from cairn_api.main import app
 client = TestClient(app)
 
 
+def authenticate() -> None:
+    client.post("/v1/auth/dev-session", json={"email": "saves-tests@example.com"})
+
+
 def test_save_event_returns_updated_profile_saves() -> None:
+    authenticate()
     profile_response = client.post("/v1/profile")
     profile_id = profile_response.json()["profileId"]
 
@@ -21,6 +26,7 @@ def test_save_event_returns_updated_profile_saves() -> None:
 
 
 def test_unsave_removes_from_profile() -> None:
+    authenticate()
     profile_response = client.post("/v1/profile")
     profile_id = profile_response.json()["profileId"]
 

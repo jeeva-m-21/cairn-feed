@@ -7,7 +7,12 @@ from cairn_api.main import app
 client = TestClient(app)
 
 
+def authenticate() -> None:
+    client.post("/v1/auth/dev-session", json={"email": "profile-tests@example.com"})
+
+
 def test_create_profile_returns_id_and_defaults() -> None:
+    authenticate()
     response = client.post("/v1/profile")
 
     assert response.status_code == 201
@@ -20,6 +25,7 @@ def test_create_profile_returns_id_and_defaults() -> None:
 
 
 def test_get_profile_returns_saved_data() -> None:
+    authenticate()
     create_response = client.post(
         "/v1/profile",
         json={
@@ -41,6 +47,7 @@ def test_get_profile_returns_saved_data() -> None:
 
 
 def test_feed_respects_profile_topics_for_relevance() -> None:
+    authenticate()
     profile_response = client.post(
         "/v1/profile",
         json={"topics": ["agents"], "experienceLevel": "intermediate"},

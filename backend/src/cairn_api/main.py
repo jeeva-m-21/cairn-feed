@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
 import json
+import secrets
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -9,7 +10,7 @@ from uuid import uuid4
 import feedparser
 import requests
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -47,6 +48,7 @@ class ProfileInput(BaseModel):
 class Profile(ProfileInput):
     profileId: str
     saves: list[str] = Field(default_factory=list)
+    ownerEmail: str = Field(exclude=True)
 
 
 class EventCard(BaseModel):
@@ -159,6 +161,14 @@ class DeleteResponse(BaseModel):
     deleted: bool
 
 
+class DevSessionRequest(BaseModel):
+    email: str
+
+
+class DevSessionResponse(BaseModel):
+    email: str
+
+
 FOR_YOU_EVENTS = [
     EventCard(
         id="evt-open-models-edge",
@@ -184,6 +194,22 @@ FOR_YOU_EVENTS = [
 ]
 
 PROFILES: dict[str, Profile] = {}
+DEV_SESSIONS: dict[str, str] = {}
+
+
+def require_session(request: Request) -> str:
+    session_id = request.cookies.get("cairn_session")
+    if not session_id or session_id not in DEV_SESSIONS:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return DEV_SESSIONS[session_id]
+
+
+@app.post("/v1/auth/dev-session", response_model=DevSessionResponse, status_code=status.HTTP_201_CREATED)
+def create_dev_session(payload: DevSessionRequest, response: Response) -> DevSessionResponse:
+    session_id = secrets.token_urlsafe(24)
+    DEV_SESSIONS[session_id] = payload.email
+    response.set_cookie("cairn_session", session_id, httponly=True, samesite="lax")
+    return DevSessionResponse(email=payload.email)
 
 
 @app.get("/health")
@@ -192,9 +218,11 @@ def health() -> dict[str, str]:
 
 
 @app.post("/v1/profile", response_model=Profile, status_code=status.HTTP_201_CREATED)
-def create_profile(profile_input: ProfileInput | None = None) -> Profile:
+def create_profile(request: Request, profile_input: ProfileInput | None = None) -> Profile:
+    owner_email = require_session(request)
     profile_dict = (profile_input or ProfileInput()).model_dump()
     profile_dict["saves"] = []
+    profile_dict["ownerEmail"] = owner_email
     profile = Profile(profileId=str(uuid4()), **profile_dict)
     PROFILES[profile.profileId] = profile
     return profile
@@ -254,9 +282,10 @@ def delete_alert(alert_id: str) -> DeleteResponse:
 
 
 @app.get("/v1/profile/{profile_id}", response_model=Profile)
-def get_profile(profile_id: str) -> Profile:
+def get_profile(profile_id: str, request: Request) -> Profile:
+    owner_email = require_session(request)
     profile = PROFILES.get(profile_id)
-    if profile is None:
+    if profile is None or profile.ownerEmail != owner_email:
         raise HTTPException(status_code=404, detail="Profile not found")
     return profile
 

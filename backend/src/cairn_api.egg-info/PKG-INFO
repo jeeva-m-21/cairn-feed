@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: cairn-api
+Version: 0.1.0
+Summary: Cairn API
+Requires-Python: >=3.13
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: uvicorn[standard]<1.0,>=0.30
+Requires-Dist: sqlalchemy[asyncio]<3.0,>=2.0
+Requires-Dist: alembic<2.0,>=1.13
+Requires-Dist: asyncpg<1.0,>=0.29
+Requires-Dist: psycopg2-binary<3.0,>=2.9
+Requires-Dist: pydantic[email]<3.0,>=2.9
+Requires-Dist: feedparser>=6.0.11
+Requires-Dist: requests<3.0,>=2.32
+Requires-Dist: beautifulsoup4<5.0,>=4.12
+Requires-Dist: aiohttp<4.0,>=3.10
+Requires-Dist: lxml<6.0,>=5.3

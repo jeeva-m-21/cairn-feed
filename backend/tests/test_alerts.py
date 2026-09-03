@@ -5,7 +5,12 @@ from cairn_api.main import app
 client = TestClient(app)
 
 
+def authenticate() -> None:
+    client.post("/v1/auth/dev-session", json={"email": "alerts-tests@example.com"})
+
+
 def test_create_alert_returns_alert_id() -> None:
+    authenticate()
     profile_response = client.post("/v1/profile")
     profile_id = profile_response.json()["profileId"]
 
@@ -23,6 +28,7 @@ def test_create_alert_returns_alert_id() -> None:
 
 
 def test_delete_alert_removes_alert() -> None:
+    authenticate()
     profile_response = client.post("/v1/profile")
     profile_id = profile_response.json()["profileId"]
 
