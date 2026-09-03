@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 const events = [
   { category: "MODEL RELEASE", title: "Open models are getting smaller without getting quiet", summary: "A new family of compact reasoning models trades scale for deployability—and changes what teams can run at the edge.", sourceCount: 8, age: "18 min ago", relevance: "Matches your interest in inference and open source", signal: "MODEL SHIFT" },
