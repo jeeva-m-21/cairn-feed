@@ -92,6 +92,28 @@ class ClusterResponse(BaseModel):
     clusters: list[EventCluster]
 
 
+class BriefRequest(BaseModel):
+    clusterId: str
+
+
+class Evidence(BaseModel):
+    documentId: str
+    citation: str
+
+
+class BriefClaim(BaseModel):
+    text: str
+    confidence: Literal["high", "medium", "low"]
+    evidence: list[Evidence]
+
+
+class Brief(BaseModel):
+    briefId: str
+    clusterId: str
+    title: str
+    claims: list[BriefClaim]
+
+
 FOR_YOU_EVENTS = [
     EventCard(
         id="evt-open-models-edge",
@@ -140,6 +162,7 @@ def get_profile(profile_id: str) -> Profile:
 
 
 DOCUMENTS: dict[str, IngestedDocument] = {}
+CLUSTERS: dict[str, tuple[EventCluster, list[ClusterDocument]]] = {}
 
 
 def document_id_for(url: str) -> str:
@@ -270,6 +293,7 @@ def cluster_documents(request: ClusterRequest) -> ClusterResponse:
             confidence="high" if len(common_entities) >= 2 else "medium",
             explanation=f"Grouped by shared entities: {', '.join(sorted(common_entities))}.",
         )
+        CLUSTERS[cluster.clusterId] = (cluster, documents)
         return ClusterResponse(clusters=[cluster])
 
     clusters = [
@@ -283,6 +307,41 @@ def cluster_documents(request: ClusterRequest) -> ClusterResponse:
         for document in documents
     ]
     return ClusterResponse(clusters=clusters)
+
+
+@app.post("/v1/briefs", response_model=Brief, status_code=status.HTTP_201_CREATED)
+def generate_brief(request: BriefRequest) -> Brief:
+    cluster_data = CLUSTERS.get(request.clusterId)
+    if cluster_data is None:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    cluster, documents = cluster_data
+
+    shared_entities = set.intersection(*(set(doc.entities) for doc in documents))
+    claim_text = f"Developments in {', '.join(sorted(shared_entities))} across {len(documents)} sources."
+
+    evidence = [
+        Evidence(
+            documentId=doc.documentId,
+            citation=f"{doc.title[:100]}..."
+        )
+        for doc in documents
+    ]
+
+    claims = [
+        BriefClaim(
+            text=claim_text,
+            confidence="high",
+            evidence=evidence
+        )
+    ]
+
+    brief = Brief(
+        briefId=str(uuid4()),
+        clusterId=request.clusterId,
+        title=cluster.title,
+        claims=claims
+    )
+    return brief
 
 
 @app.get("/v1/feed", response_model=FeedResponse)
