@@ -68,6 +68,30 @@ class IngestedDocument(BaseModel):
     entities: list[str]
 
 
+class ClusterDocument(BaseModel):
+    documentId: str
+    sourceUrl: str
+    title: str
+    excerpt: str
+    entities: list[str] = Field(default_factory=list)
+
+
+class ClusterRequest(BaseModel):
+    documents: list[ClusterDocument] = Field(min_length=1, max_length=100)
+
+
+class EventCluster(BaseModel):
+    clusterId: str
+    documentIds: list[str]
+    title: str
+    confidence: Literal["high", "medium", "low"]
+    explanation: str
+
+
+class ClusterResponse(BaseModel):
+    clusters: list[EventCluster]
+
+
 FOR_YOU_EVENTS = [
     EventCard(
         id="evt-open-models-edge",
@@ -225,6 +249,40 @@ def ingest_rss(url: str = Query(...)) -> IngestedDocument:
     DOCUMENTS[document.documentId] = document
     return document
 
+
+
+@app.post("/v1/clusters", response_model=ClusterResponse, status_code=status.HTTP_201_CREATED)
+def cluster_documents(request: ClusterRequest) -> ClusterResponse:
+    documents = request.documents
+    document_ids = [document.documentId for document in documents]
+    if len(document_ids) != len(set(document_ids)):
+        raise HTTPException(status_code=422, detail="Duplicate document IDs are not allowed")
+    common_entities = set(documents[0].entities)
+    for document in documents[1:]:
+        common_entities.intersection_update(document.entities)
+
+    if len(documents) > 1 and common_entities:
+        cluster_id = sha256("|".join(sorted(doc.documentId for doc in documents)).encode()).hexdigest()[:16]
+        cluster = EventCluster(
+            clusterId=cluster_id,
+            documentIds=[document.documentId for document in documents],
+            title=documents[0].title,
+            confidence="high" if len(common_entities) >= 2 else "medium",
+            explanation=f"Grouped by shared entities: {', '.join(sorted(common_entities))}.",
+        )
+        return ClusterResponse(clusters=[cluster])
+
+    clusters = [
+        EventCluster(
+            clusterId=sha256(document.documentId.encode()).hexdigest()[:16],
+            documentIds=[document.documentId],
+            title=document.title,
+            confidence="low",
+            explanation="Kept separate because no shared entities met the clustering threshold.",
+        )
+        for document in documents
+    ]
+    return ClusterResponse(clusters=clusters)
 
 
 @app.get("/v1/feed", response_model=FeedResponse)
