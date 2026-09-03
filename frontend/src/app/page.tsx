@@ -10,6 +10,7 @@ type ApiEvent = {
   relevanceReason: string;
 };
 
+
 const eventDetails: Record<string, { summary: string; age: string; signal: string }> = {
   "evt-open-models-edge": { summary: "A new family of compact reasoning models trades scale for deployability—and changes what teams can run at the edge.", age: "18 min ago", signal: "MODEL SHIFT" },
   "evt-durable-agent-primitives": { summary: "Three new releases point to the same pattern: traces, permissions, and resumable work before clever autonomy.", age: "2 hr ago", signal: "PATTERN" },
