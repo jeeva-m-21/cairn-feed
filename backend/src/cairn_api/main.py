@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
+import json
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -10,6 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="Cairn API")
@@ -112,6 +114,17 @@ class Brief(BaseModel):
     clusterId: str
     title: str
     claims: list[BriefClaim]
+
+
+class SourceHealth(BaseModel):
+    sourceId: str
+    status: Literal["healthy", "degraded", "disabled"]
+    lastCheckedAt: str
+
+
+class SourceHealthResponse(BaseModel):
+    overallStatus: Literal["healthy", "degraded"]
+    sources: list[SourceHealth]
 
 
 FOR_YOU_EVENTS = [
@@ -309,39 +322,71 @@ def cluster_documents(request: ClusterRequest) -> ClusterResponse:
     return ClusterResponse(clusters=clusters)
 
 
+SOURCE_HEALTH: dict[str, Literal["healthy", "degraded", "disabled"]] = {"rss": "healthy", "github": "healthy", "arxiv": "healthy"}
+
+
+@app.get("/v1/admin/source-health", response_model=SourceHealthResponse)
+def source_health(degraded: str | None = None) -> SourceHealthResponse:
+    source_statuses = dict(SOURCE_HEALTH)
+    if degraded in source_statuses:
+        source_statuses[degraded] = "degraded"
+    sources = [
+        SourceHealth(
+            sourceId=source_id,
+            status=source_statuses[source_id],
+            lastCheckedAt=datetime.now(timezone.utc).isoformat(),
+        )
+        for source_id in source_statuses
+    ]
+    overall = "degraded" if any(s.status == "degraded" for s in sources) else "healthy"
+    return SourceHealthResponse(overallStatus=overall, sources=sources)
+
+
+@app.get("/v1/briefs/{cluster_id}/stream")
+async def stream_brief(cluster_id: str) -> StreamingResponse:
+    cluster_data = CLUSTERS.get(cluster_id)
+
+    def event_stream():
+        if cluster_data is None:
+            yield 'data: {"type":"error","code":"CLUSTER_NOT_FOUND"}\n\n'
+            return
+
+        cluster, documents = cluster_data
+        shared_entities = sorted(set.intersection(*(set(doc.entities) for doc in documents)))
+        meta = {"type": "meta", "title": cluster.title, "entities": shared_entities, "documentCount": len(documents)}
+        yield f"data: {json.dumps(meta)}\n\n"
+        evidence = [{"documentId": doc.documentId, "citation": f"{doc.title[:100]}..."} for doc in documents]
+        claim = {
+            "type": "claim",
+            "text": f"Developments in {', '.join(shared_entities)} across {len(documents)} sources.",
+            "confidence": "high",
+            "evidence": evidence,
+            "evidenceCount": len(evidence),
+        }
+        yield f"data: {json.dumps(claim)}\n\n"
+        yield 'data: {"type":"done"}\n\n'
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @app.post("/v1/briefs", response_model=Brief, status_code=status.HTTP_201_CREATED)
 def generate_brief(request: BriefRequest) -> Brief:
     cluster_data = CLUSTERS.get(request.clusterId)
     if cluster_data is None:
         raise HTTPException(status_code=404, detail="Cluster not found")
     cluster, documents = cluster_data
-
     shared_entities = set.intersection(*(set(doc.entities) for doc in documents))
-    claim_text = f"Developments in {', '.join(sorted(shared_entities))} across {len(documents)} sources."
-
-    evidence = [
-        Evidence(
-            documentId=doc.documentId,
-            citation=f"{doc.title[:100]}..."
-        )
-        for doc in documents
-    ]
-
-    claims = [
-        BriefClaim(
-            text=claim_text,
-            confidence="high",
-            evidence=evidence
-        )
-    ]
-
-    brief = Brief(
+    evidence = [Evidence(documentId=doc.documentId, citation=f"{doc.title[:100]}...") for doc in documents]
+    return Brief(
         briefId=str(uuid4()),
         clusterId=request.clusterId,
         title=cluster.title,
-        claims=claims
+        claims=[BriefClaim(
+            text=f"Developments in {', '.join(sorted(shared_entities))} across {len(documents)} sources.",
+            confidence="high",
+            evidence=evidence,
+        )],
     )
-    return brief
 
 
 @app.get("/v1/feed", response_model=FeedResponse)
