@@ -133,6 +133,32 @@ class SaveRequest(BaseModel):
     eventId: str
 
 
+class SearchResult(EventCard):
+    matchReason: str
+
+
+class SearchResponse(BaseModel):
+    query: str
+    items: list[SearchResult]
+
+
+class AlertRequest(BaseModel):
+    profileId: str
+    eventId: str
+    delivery: Literal["email", "in_app"]
+
+
+class Alert(BaseModel):
+    alertId: str
+    profileId: str
+    eventId: str
+    delivery: Literal["email", "in_app"]
+
+
+class DeleteResponse(BaseModel):
+    deleted: bool
+
+
 FOR_YOU_EVENTS = [
     EventCard(
         id="evt-open-models-edge",
@@ -193,6 +219,38 @@ def unsave_event(request: SaveRequest) -> Profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     profile.saves = [event_id for event_id in profile.saves if event_id != request.eventId]
     return profile
+
+
+@app.get("/v1/search", response_model=SearchResponse)
+def search(q: str = Query(..., min_length=1)) -> SearchResponse:
+    normalized_query = q.strip()
+    if not normalized_query:
+        raise HTTPException(status_code=422, detail="Search query must not be blank")
+    matching = [event for event in FOR_YOU_EVENTS if normalized_query.lower() in event.title.lower() or normalized_query.lower() in event.relevanceReason.lower()]
+    items = [SearchResult(**event.model_dump(), matchReason=f"Matches '{normalized_query}' in title or reason") for event in matching]
+    return SearchResponse(query=normalized_query, items=items)
+
+
+ALERTS: dict[str, Alert] = {}
+
+
+@app.post("/v1/alerts", response_model=Alert, status_code=status.HTTP_201_CREATED)
+def create_alert(request: AlertRequest) -> Alert:
+    if request.profileId not in PROFILES:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if request.eventId not in {event.id for event in FOR_YOU_EVENTS}:
+        raise HTTPException(status_code=404, detail="Event not found")
+    alert = Alert(alertId=str(uuid4()), **request.model_dump())
+    ALERTS[alert.alertId] = alert
+    return alert
+
+
+@app.delete("/v1/alerts/{alert_id}", response_model=DeleteResponse)
+def delete_alert(alert_id: str) -> DeleteResponse:
+    if alert_id not in ALERTS:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    del ALERTS[alert_id]
+    return DeleteResponse(deleted=True)
 
 
 @app.get("/v1/profile/{profile_id}", response_model=Profile)
