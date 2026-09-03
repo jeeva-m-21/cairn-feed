@@ -46,6 +46,7 @@ class ProfileInput(BaseModel):
 
 class Profile(ProfileInput):
     profileId: str
+    saves: list[str] = Field(default_factory=list)
 
 
 class EventCard(BaseModel):
@@ -127,6 +128,11 @@ class SourceHealthResponse(BaseModel):
     sources: list[SourceHealth]
 
 
+class SaveRequest(BaseModel):
+    profileId: str
+    eventId: str
+
+
 FOR_YOU_EVENTS = [
     EventCard(
         id="evt-open-models-edge",
@@ -161,8 +167,31 @@ def health() -> dict[str, str]:
 
 @app.post("/v1/profile", response_model=Profile, status_code=status.HTTP_201_CREATED)
 def create_profile(profile_input: ProfileInput | None = None) -> Profile:
-    profile = Profile(profileId=str(uuid4()), **(profile_input or ProfileInput()).model_dump())
+    profile_dict = (profile_input or ProfileInput()).model_dump()
+    profile_dict["saves"] = []
+    profile = Profile(profileId=str(uuid4()), **profile_dict)
     PROFILES[profile.profileId] = profile
+    return profile
+
+
+@app.post("/v1/saves", response_model=Profile, status_code=status.HTTP_201_CREATED)
+def save_event(request: SaveRequest) -> Profile:
+    profile = PROFILES.get(request.profileId)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if request.eventId not in {event.id for event in FOR_YOU_EVENTS}:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if request.eventId not in profile.saves:
+        profile.saves.append(request.eventId)
+    return profile
+
+
+@app.delete("/v1/saves", response_model=Profile)
+def unsave_event(request: SaveRequest) -> Profile:
+    profile = PROFILES.get(request.profileId)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    profile.saves = [event_id for event_id in profile.saves if event_id != request.eventId]
     return profile
 
 
