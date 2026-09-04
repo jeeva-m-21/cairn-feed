@@ -29,4 +29,6 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-asyncio_mode = "auto"
+
+[tool.vercel]
+entrypoint = "src.cairn_api.main:app"
