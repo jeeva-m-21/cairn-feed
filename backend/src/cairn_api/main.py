@@ -307,7 +307,7 @@ def fetch_permitted_html(url: str, allowed_hosts: set[str]) -> BeautifulSoup:
         response.raise_for_status()
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail="Source fetch failed") from exc
-    return BeautifulSoup(response.text, "lxml")
+    return BeautifulSoup(response.text, "html.parser")
 
 
 def save_document(document: IngestedDocument) -> IngestedDocument:
